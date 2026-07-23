@@ -12,12 +12,10 @@ import {
  * Types & constants
  * ------------------------------------------------------------------ */
 
-type Pattern = "Én række" | "To rækker" | "Fuld plade";
 type ToastKind = "win" | "lose";
 type Toast = { text: string; kind: ToastKind };
 type Cell = { n: number; bg: string; fg: string; border: string };
 
-const PATTERNS: Pattern[] = ["Én række", "To rækker", "Fuld plade"];
 const MAX_NUMBER = 90;
 const MOBILE_BREAKPOINT = 860;
 
@@ -40,7 +38,6 @@ const labelStyle: CSSProperties = {
 };
 
 type BingoCallerProps = {
-  defaultPattern?: Pattern;
   soundEnabled?: boolean;
   /** How many recent numbers to show (4–15). */
   historyCount?: number;
@@ -155,34 +152,27 @@ function getCells(called: Set<number>, current: number | null): Cell[] {
  * ------------------------------------------------------------------ */
 
 export default function BingoCaller({
-  defaultPattern = "Én række",
   soundEnabled = true,
   historyCount = 8,
 }: BingoCallerProps) {
   const [calledNumbers, setCalledNumbers] = useState<number[]>([]);
   const [currentNumber, setCurrentNumber] = useState<number | null>(null);
   const [history, setHistory] = useState<number[]>([]);
-  const [pattern, setPattern] = useState<Pattern>(defaultPattern);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [bigBoard, setBigBoard] = useState(false);
   const [boardOpen, setBoardOpen] = useState(false);
   // Default to the mobile layout so the server render and first client render
   // agree; the effect below corrects it after mount.
   const [isMobile, setIsMobile] = useState(true);
 
-  const rootRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioCtx = useRef<AudioContext | null>(null);
 
-  /* --- lifecycle: fullscreen + responsive listeners --- */
+  /* --- lifecycle: responsive listener --- */
   useEffect(() => {
-    const onFs = () => setBigBoard(!!document.fullscreenElement);
     const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-    document.addEventListener("fullscreenchange", onFs);
     window.addEventListener("resize", onResize);
     onResize();
     return () => {
-      document.removeEventListener("fullscreenchange", onFs);
       window.removeEventListener("resize", onResize);
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -267,17 +257,6 @@ export default function BingoCaller({
     setToast(null);
   };
 
-  const onToggleBigBoard = () => {
-    const el = rootRef.current;
-    if (!document.fullscreenElement) {
-      el?.requestFullscreen?.().catch(() => {});
-      setBigBoard(true);
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-      setBigBoard(false);
-    }
-  };
-
   const onBingo = () => {
     playWinSound();
     showToast("BINGO! ✔ Vinder bekræftet", "win");
@@ -349,7 +328,6 @@ export default function BingoCaller({
 
   return (
     <div
-      ref={rootRef}
       style={{
         minHeight: "100vh",
         display: "flex",
@@ -357,6 +335,8 @@ export default function BingoCaller({
         background: "oklch(0.985 0.004 80)",
         color: INK,
         boxSizing: "border-box",
+        maxWidth: "100%",
+        overflowX: "hidden",
       }}
     >
       {/* ---------------- Header ---------------- */}
@@ -372,7 +352,7 @@ export default function BingoCaller({
           color: "white",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
           {/* Greenland-flag inspired mark */}
           <div
             style={{
@@ -405,7 +385,7 @@ export default function BingoCaller({
           <div
             style={{
               fontFamily: FONT_HEADING,
-              fontSize: 26,
+              fontSize: "clamp(20px, 6vw, 26px)",
               fontWeight: 700,
               letterSpacing: "0.5px",
             }}
@@ -414,282 +394,236 @@ export default function BingoCaller({
           </div>
         </div>
 
-        <div
+        <HoverButton
+          onClick={onNewGame}
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
+            fontFamily: FONT_BODY,
+            fontWeight: 700,
+            fontSize: 15,
+            padding: "10px 16px",
+            borderRadius: 10,
+            border: "none",
+            background: "white",
+            color: "oklch(0.45 0.19 25)",
+            cursor: "pointer",
           }}
+          hoverStyle={{ background: "oklch(0.93 0.01 60)" }}
         >
-          <select
-            value={pattern}
-            onChange={(e) => setPattern(e.target.value as Pattern)}
-            style={{
-              fontFamily: FONT_BODY,
-              fontWeight: 700,
-              fontSize: 15,
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "none",
-              background: "white",
-              color: "oklch(0.3 0.1 25)",
-              cursor: "pointer",
-            }}
-          >
-            {PATTERNS.map((p) => (
-              <option key={p} value={p}>
-                Mønster: {p}
-              </option>
-            ))}
-          </select>
-          <HoverButton
-            onClick={onToggleBigBoard}
-            style={{
-              fontFamily: FONT_BODY,
-              fontWeight: 700,
-              fontSize: 15,
-              padding: "10px 16px",
-              borderRadius: 10,
-              border: "2px solid white",
-              background: "transparent",
-              color: "white",
-              cursor: "pointer",
-            }}
-            hoverStyle={{ background: "rgba(255,255,255,0.15)" }}
-          >
-            {bigBoard ? "Luk storskærm" : "Storskærm"}
-          </HoverButton>
-          <HoverButton
-            onClick={onNewGame}
-            style={{
-              fontFamily: FONT_BODY,
-              fontWeight: 700,
-              fontSize: 15,
-              padding: "10px 16px",
-              borderRadius: 10,
-              border: "none",
-              background: "white",
-              color: "oklch(0.45 0.19 25)",
-              cursor: "pointer",
-            }}
-            hoverStyle={{ background: "oklch(0.93 0.01 60)" }}
-          >
-            Nyt spil
-          </HoverButton>
-        </div>
+          Nyt spil
+        </HoverButton>
       </header>
 
-      {/* ---------------- Standard view ---------------- */}
-      {!bigBoard && (
+      {/* ---------------- Main view ---------------- */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-start",
+          gap: 24,
+          padding: "24px 28px 100px",
+          flex: 1,
+        }}
+      >
+        {/* Left column */}
         <div
           style={{
+            flex: "1 1 260px",
+            minWidth: 0,
             display: "flex",
-            flexWrap: "wrap",
-            alignItems: "flex-start",
-            gap: 24,
-            padding: "24px 28px 100px",
-            flex: 1,
+            flexDirection: "column",
+            gap: 20,
+            maxWidth: 380,
           }}
         >
-          {/* Left column */}
+          {/* Current number */}
           <div
             style={{
-              flex: "1 1 260px",
+              background: "white",
+              borderRadius: 20,
+              padding: 28,
               display: "flex",
               flexDirection: "column",
-              gap: 20,
-              maxWidth: 380,
+              alignItems: "center",
+              gap: 16,
+              border: `1px solid ${LINE}`,
             }}
           >
-            {/* Current number */}
+            <div style={labelStyle}>Aktuelt tal</div>
             <div
+              key={currentNumber ?? "none"}
               style={{
-                background: "white",
-                borderRadius: 20,
-                padding: 28,
+                width: "clamp(120px, 24vw, 180px)",
+                height: "clamp(120px, 24vw, 180px)",
+                borderRadius: 999,
+                background: RED,
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
-                gap: 16,
-                border: `1px solid ${LINE}`,
+                justifyContent: "center",
+                animation: "pop 0.25s ease-out",
               }}
             >
-              <div style={labelStyle}>Aktuelt tal</div>
               <div
-                key={currentNumber ?? "none"}
                 style={{
-                  width: "clamp(120px, 24vw, 180px)",
-                  height: "clamp(120px, 24vw, 180px)",
-                  borderRadius: 999,
-                  background: RED,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  animation: "pop 0.25s ease-out",
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: FONT_HEADING,
-                    fontSize: "clamp(48px, 9vw, 72px)",
-                    fontWeight: 700,
-                    color: "white",
-                  }}
-                >
-                  {currentDisplay}
-                </div>
-              </div>
-              <HoverButton
-                onClick={onDraw}
-                disabled={!canDraw}
-                style={{
-                  width: "100%",
                   fontFamily: FONT_HEADING,
-                  fontSize: 20,
+                  fontSize: "clamp(48px, 9vw, 72px)",
                   fontWeight: 700,
-                  padding: 16,
-                  borderRadius: 14,
-                  border: "none",
-                  background: INK,
                   color: "white",
-                  cursor: "pointer",
                 }}
-                hoverStyle={{ background: "oklch(0.3 0.02 60)" }}
               >
-                {drawLabel}
-              </HoverButton>
-              <div style={{ fontSize: 14, fontWeight: 700, color: MUTED }}>
-                {remainingLabel}
+                {currentDisplay}
               </div>
             </div>
+            <HoverButton
+              onClick={onDraw}
+              disabled={!canDraw}
+              style={{
+                width: "100%",
+                fontFamily: FONT_HEADING,
+                fontSize: 20,
+                fontWeight: 700,
+                padding: 16,
+                borderRadius: 14,
+                border: "none",
+                background: INK,
+                color: "white",
+                cursor: "pointer",
+              }}
+              hoverStyle={{ background: "oklch(0.3 0.02 60)" }}
+            >
+              {drawLabel}
+            </HoverButton>
+            <div style={{ fontSize: 14, fontWeight: 700, color: MUTED }}>
+              {remainingLabel}
+            </div>
+          </div>
 
-            {/* Recent numbers */}
+          {/* Recent numbers */}
+          <div
+            style={{
+              background: "white",
+              borderRadius: 20,
+              padding: 20,
+              border: `1px solid ${LINE}`,
+              minWidth: 0,
+            }}
+          >
+            <div style={{ ...labelStyle, marginBottom: 12 }}>Seneste tal</div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                overflowX: "auto",
+                paddingBottom: 4,
+              }}
+            >
+              {historyItems.map((h, i) => (
+                <div
+                  key={`${h}-${i}`}
+                  style={{
+                    flexShrink: 0,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 999,
+                    background: "oklch(0.94 0.03 220)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: FONT_HEADING,
+                    fontWeight: 700,
+                    fontSize: 15,
+                    color: "oklch(0.35 0.05 220)",
+                  }}
+                >
+                  {h}
+                </div>
+              ))}
+              {historyEmpty && (
+                <div
+                  style={{
+                    fontSize: 14,
+                    color: "oklch(0.6 0.02 60)",
+                    padding: "10px 0",
+                  }}
+                >
+                  Ingen tal trukket endnu.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Mobile: open board sheet */}
+          {isMobile && (
+            <HoverButton
+              onClick={() => setBoardOpen(true)}
+              style={{
+                width: "100%",
+                fontFamily: FONT_HEADING,
+                fontSize: 17,
+                fontWeight: 700,
+                padding: 16,
+                borderRadius: 14,
+                border: `2px solid ${RED}`,
+                background: "white",
+                color: RED,
+                cursor: "pointer",
+              }}
+              hoverStyle={{ background: "oklch(0.97 0.02 25)" }}
+            >
+              Vis tavle &amp; bingo-tjek
+            </HoverButton>
+          )}
+        </div>
+
+        {/* Right column (desktop) */}
+        {showDesktopBoard && (
+          <div
+            style={{
+              flex: "3 1 460px",
+              minWidth: 0,
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "flex-start",
+              gap: 24,
+            }}
+          >
             <div
               style={{
                 background: "white",
                 borderRadius: 20,
                 padding: 20,
                 border: `1px solid ${LINE}`,
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                flex: "1 1 100%",
               }}
             >
-              <div style={{ ...labelStyle, marginBottom: 12 }}>Seneste tal</div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  overflowX: "auto",
-                  paddingBottom: 4,
-                }}
-              >
-                {historyItems.map((h, i) => (
-                  <div
-                    key={`${h}-${i}`}
-                    style={{
-                      flexShrink: 0,
-                      width: 40,
-                      height: 40,
-                      borderRadius: 999,
-                      background: "oklch(0.94 0.03 220)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontFamily: FONT_HEADING,
-                      fontWeight: 700,
-                      fontSize: 15,
-                      color: "oklch(0.35 0.05 220)",
-                    }}
-                  >
-                    {h}
-                  </div>
-                ))}
-                {historyEmpty && (
-                  <div
-                    style={{
-                      fontSize: 14,
-                      color: "oklch(0.6 0.02 60)",
-                      padding: "10px 0",
-                    }}
-                  >
-                    Ingen tal trukket endnu.
-                  </div>
-                )}
-              </div>
+              <div style={labelStyle}>Bekræft bingo</div>
+              {confirmButtons}
             </div>
 
-            {/* Mobile: open board sheet */}
-            {isMobile && (
-              <HoverButton
-                onClick={() => setBoardOpen(true)}
-                style={{
-                  width: "100%",
-                  fontFamily: FONT_HEADING,
-                  fontSize: 17,
-                  fontWeight: 700,
-                  padding: 16,
-                  borderRadius: 14,
-                  border: `2px solid ${RED}`,
-                  background: "white",
-                  color: RED,
-                  cursor: "pointer",
-                }}
-                hoverStyle={{ background: "oklch(0.97 0.02 25)" }}
-              >
-                Vis tavle &amp; bingo-tjek
-              </HoverButton>
-            )}
-          </div>
-
-          {/* Right column (desktop) */}
-          {showDesktopBoard && (
             <div
               style={{
-                flex: "3 1 460px",
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "flex-start",
-                gap: 24,
+                flex: "1 1 100%",
+                background: "white",
+                borderRadius: 20,
+                padding: 24,
+                border: `1px solid ${LINE}`,
               }}
             >
-              <div
-                style={{
-                  background: "white",
-                  borderRadius: 20,
-                  padding: 20,
-                  border: `1px solid ${LINE}`,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  flex: "1 1 100%",
-                }}
-              >
-                <div style={labelStyle}>Bekræft bingo</div>
-                {confirmButtons}
+              <div style={{ ...labelStyle, marginBottom: 16 }}>
+                Tavle over trukne tal
               </div>
-
-              <div
-                style={{
-                  flex: "1 1 100%",
-                  background: "white",
-                  borderRadius: 20,
-                  padding: 24,
-                  border: `1px solid ${LINE}`,
-                }}
-              >
-                <div style={{ ...labelStyle, marginBottom: 16 }}>
-                  Tavle over trukne tal — {pattern}
-                </div>
-                <BoardGrid
-                  cells={cells}
-                  gap={6}
-                  radius={8}
-                  fontSize="clamp(11px, 1.6vw, 16px)"
-                />
-              </div>
+              <BoardGrid
+                cells={cells}
+                gap={6}
+                radius={8}
+                fontSize="clamp(11px, 1.6vw, 16px)"
+              />
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {/* ---------------- Mobile board overlay ---------------- */}
       {showOverlayBoard && (
@@ -779,7 +713,7 @@ export default function BingoCaller({
                 }}
               >
                 <div style={{ ...labelStyle, marginBottom: 12 }}>
-                  Tavle over trukne tal — {pattern}
+                  Tavle over trukne tal
                 </div>
                 <BoardGrid
                   cells={cells}
@@ -789,112 +723,6 @@ export default function BingoCaller({
                 />
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------- Big-board (fullscreen) ---------------- */}
-      {bigBoard && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 28,
-            padding: 32,
-            flex: 1,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 32,
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            <div style={{ textAlign: "center" }}>
-              <div style={{ ...labelStyle, fontSize: 16, marginBottom: 10 }}>
-                Aktuelt tal
-              </div>
-              <div
-                key={currentNumber ?? "none"}
-                style={{
-                  width: "clamp(160px, 20vw, 260px)",
-                  height: "clamp(160px, 20vw, 260px)",
-                  borderRadius: 999,
-                  background: RED,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  animation: "pop 0.25s ease-out",
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: FONT_HEADING,
-                    fontSize: "clamp(64px, 10vw, 110px)",
-                    fontWeight: 700,
-                    color: "white",
-                  }}
-                >
-                  {currentDisplay}
-                </div>
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                alignItems: "center",
-              }}
-            >
-              <div
-                style={{ fontSize: 20, fontWeight: 700, color: "oklch(0.4 0.02 60)" }}
-              >
-                {remainingLabel}
-              </div>
-              <HoverButton
-                onClick={onDraw}
-                disabled={!canDraw}
-                style={{
-                  fontFamily: FONT_HEADING,
-                  fontSize: 24,
-                  fontWeight: 700,
-                  padding: "20px 40px",
-                  borderRadius: 16,
-                  border: "none",
-                  background: INK,
-                  color: "white",
-                  cursor: "pointer",
-                }}
-                hoverStyle={{ background: "oklch(0.3 0.02 60)" }}
-              >
-                {drawLabel}
-              </HoverButton>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "oklch(0.5 0.19 25)" }}>
-                Mønster: {pattern}
-              </div>
-            </div>
-          </div>
-          <div
-            style={{
-              width: "100%",
-              maxWidth: 1400,
-              background: "white",
-              borderRadius: 20,
-              padding: 28,
-              border: `1px solid ${LINE}`,
-            }}
-          >
-            <BoardGrid
-              cells={cells}
-              gap={10}
-              radius={10}
-              fontSize="clamp(14px, 2.2vw, 26px)"
-            />
           </div>
         </div>
       )}
