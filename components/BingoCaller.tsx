@@ -3,6 +3,7 @@
 import {
   type CSSProperties,
   type ReactNode,
+  type RefObject,
   useEffect,
   useRef,
   useState,
@@ -18,6 +19,13 @@ type Cell = { n: number; bg: string; fg: string; border: string };
 
 const MAX_NUMBER = 90;
 const MOBILE_BREAKPOINT = 860;
+
+// Optional audio files. Drop them in public/sounds/ to override the built-in
+// synthesized sounds; if a file is missing, playback falls back automatically.
+const WIN_SOUND_SRC = "/sounds/bingo-song.mp3";
+const LOSE_SOUND_SRC = "/sounds/not-bingo.mp3";
+// Only the first N seconds of the win song are played.
+const WIN_EXCERPT_SECONDS = 20;
 
 const FONT_HEADING = "var(--font-space-grotesk), sans-serif";
 const FONT_BODY = "var(--font-manrope), sans-serif";
@@ -147,6 +155,35 @@ function getCells(called: Set<number>, current: number | null): Cell[] {
   return cells;
 }
 
+/** Small speaker icon hinting that the buttons below make a sound. */
+function SpeakerIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" />
+      <path
+        d="M15.54 8.46a5 5 0 0 1 0 7.07"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+      <path
+        d="M19.07 4.93a10 10 0 0 1 0 14.14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * Main component
  * ------------------------------------------------------------------ */
@@ -166,6 +203,9 @@ export default function BingoCaller({
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioCtx = useRef<AudioContext | null>(null);
+  const winAudio = useRef<HTMLAudioElement | null>(null);
+  const loseAudio = useRef<HTMLAudioElement | null>(null);
+  const excerptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* --- lifecycle: responsive listener --- */
   useEffect(() => {
@@ -175,6 +215,9 @@ export default function BingoCaller({
     return () => {
       window.removeEventListener("resize", onResize);
       if (toastTimer.current) clearTimeout(toastTimer.current);
+      if (excerptTimer.current) clearTimeout(excerptTimer.current);
+      winAudio.current?.pause();
+      loseAudio.current?.pause();
     };
   }, []);
 
@@ -212,17 +255,97 @@ export default function BingoCaller({
     osc.stop(t0 + dur + 0.05);
   };
 
-  const playWinSound = () => {
-    if (!soundEnabled) return;
+  // Synthesized fallback: a short rising fanfare.
+  const playWinFanfare = () => {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
       playTone(f, i * 0.13, 0.35, "triangle", 0.28),
     );
   };
 
-  const playLoseSound = () => {
+  // Synthesized fallback: the classic "sad trombone" — four descending notes,
+  // the last one bending downward into the resigned "waaah".
+  const playSadTrombone = () => {
+    const ctx = getCtx();
+    const now = ctx.currentTime;
+    const notes = [
+      { f: 233.08, t: 0.0, d: 0.3, bend: false }, // Bb3
+      { f: 220.0, t: 0.32, d: 0.3, bend: false }, // A3
+      { f: 207.65, t: 0.64, d: 0.3, bend: false }, // Ab3
+      { f: 196.0, t: 0.96, d: 0.85, bend: true }, // G3
+    ];
+    for (const n of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 900;
+      osc.type = "sawtooth";
+      const start = now + n.t;
+      osc.frequency.setValueAtTime(n.f, start);
+      if (n.bend) {
+        osc.frequency.exponentialRampToValueAtTime(n.f * 0.6, start + n.d);
+      }
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.3, start + 0.03);
+      gain.gain.setValueAtTime(0.3, start + n.d - 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + n.d);
+      osc.start(start);
+      osc.stop(start + n.d + 0.05);
+    }
+  };
+
+  // Try to play an audio file; resolves false if it can't (e.g. not added yet),
+  // so the caller can fall back to a synthesized sound.
+  const playFile = (
+    ref: RefObject<HTMLAudioElement | null>,
+    src: string,
+    maxSeconds?: number,
+  ): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      const el = ref.current ?? (ref.current = new Audio(src));
+      el.currentTime = 0;
+      el
+        .play()
+        .then(() => {
+          if (maxSeconds) {
+            if (excerptTimer.current) clearTimeout(excerptTimer.current);
+            excerptTimer.current = setTimeout(
+              () => el.pause(),
+              maxSeconds * 1000,
+            );
+          }
+          resolve(true);
+        })
+        .catch(() => resolve(false));
+    });
+
+  const stopAllAudio = () => {
+    if (excerptTimer.current) clearTimeout(excerptTimer.current);
+    for (const ref of [winAudio, loseAudio]) {
+      if (ref.current) {
+        ref.current.pause();
+        ref.current.currentTime = 0;
+      }
+    }
+  };
+
+  const playWinSound = async () => {
     if (!soundEnabled) return;
-    playTone(180, 0, 0.4, "sawtooth", 0.3);
-    playTone(110, 0.05, 0.5, "sawtooth", 0.3);
+    stopAllAudio();
+    if (!(await playFile(winAudio, WIN_SOUND_SRC, WIN_EXCERPT_SECONDS))) {
+      playWinFanfare();
+    }
+  };
+
+  const playLoseSound = async () => {
+    if (!soundEnabled) return;
+    stopAllAudio();
+    if (!(await playFile(loseAudio, LOSE_SOUND_SRC))) {
+      playSadTrombone();
+    }
   };
 
   /* --- toast --- */
@@ -251,6 +374,7 @@ export default function BingoCaller({
     ) {
       return;
     }
+    stopAllAudio();
     setCalledNumbers([]);
     setCurrentNumber(null);
     setHistory([]);
@@ -285,6 +409,15 @@ export default function BingoCaller({
   const showOverlayBoard = isMobile && boardOpen;
 
   /* --- reused fragments --- */
+  const confirmHeader = (
+    <div
+      style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}
+    >
+      <span>Bekræft bingo</span>
+      <SpeakerIcon />
+    </div>
+  );
+
   const confirmButtons = (
     <div style={{ display: "flex", gap: 12 }}>
       <HoverButton
@@ -598,7 +731,7 @@ export default function BingoCaller({
                 flex: "1 1 100%",
               }}
             >
-              <div style={labelStyle}>Bekræft bingo</div>
+              {confirmHeader}
               {confirmButtons}
             </div>
 
@@ -701,7 +834,7 @@ export default function BingoCaller({
                   gap: 12,
                 }}
               >
-                <div style={labelStyle}>Bekræft bingo</div>
+                {confirmHeader}
                 {confirmButtons}
               </div>
 
